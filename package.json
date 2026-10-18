@@ -1,0 +1,16 @@
+{
+  "name": "ssma-gestao",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Sistema web de gestão de SSMA (SST, meio ambiente, documentos, atividades, relatórios e eSocial)",
+  "scripts": {
+    "dev": "pnpm -r --parallel --filter ./apps/* dev",
+    "build": "pnpm -r --filter ./apps/* build",
+    "test": "pnpm --filter api test",
+    "db:migrate": "pnpm --filter api db:migrate",
+    "db:seed": "pnpm --filter api db:seed",
+    "worker": "pnpm --filter api worker"
+  },
+  "engines": { "node": ">=20" },
+  "packageManager": "pnpm@10.15.0"
+}

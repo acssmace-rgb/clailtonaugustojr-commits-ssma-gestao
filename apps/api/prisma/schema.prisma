@@ -1,0 +1,816 @@
+// SSMA Gestão — modelo de dados
+// Regra de isolamento: toda tabela de dados de cliente tem `tenantId`
+// e toda consulta da API filtra por ele (ver src/lib/tenant.ts).
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ------------------------------------------------------------------
+// Acesso e administração
+// ------------------------------------------------------------------
+
+/// Cliente atendido (organização). Isola os dados de cada cliente.
+model Tenant {
+  id        String   @id @default(uuid())
+  name      String
+  slug      String   @unique
+  isDemo    Boolean  @default(false)
+  /// Configurações do cliente (antecedência de alertas, prazos configuráveis etc.)
+  settings  Json     @default("{}")
+  active    Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  memberships Membership[]
+  companies   Company[]
+  roles       Role[]
+}
+
+model User {
+  id            String    @id @default(uuid())
+  email         String    @unique
+  name          String
+  passwordHash  String
+  isSuperAdmin  Boolean   @default(false)
+  active        Boolean   @default(true)
+  mfaEnabled    Boolean   @default(false)
+  /// Segredo TOTP criptografado (AES-256-GCM)
+  mfaSecretEnc  String?
+  failedLogins  Int       @default(0)
+  lockedUntil   DateTime?
+  lastLoginAt   DateTime?
+  passwordChangedAt DateTime @default(now())
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  memberships   Membership[]
+  sessions      Session[]
+  resetTokens   PasswordResetToken[]
+}
+
+model Session {
+  id         String   @id @default(uuid())
+  userId     String
+  /// SHA-256 do token do cookie (o token em si nunca é gravado)
+  tokenHash  String   @unique
+  mfaPending Boolean  @default(false)
+  ip         String?
+  userAgent  String?
+  createdAt  DateTime @default(now())
+  expiresAt  DateTime
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+}
+
+model PasswordResetToken {
+  id        String    @id @default(uuid())
+  userId    String
+  tokenHash String    @unique
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime  @default(now())
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+/// Papel com lista de permissões. tenantId nulo = papel padrão do sistema.
+model Role {
+  id          String   @id @default(uuid())
+  tenantId    String?
+  key         String
+  name        String
+  description String?
+  permissions String[]
+  system      Boolean  @default(false)
+  createdAt   DateTime @default(now())
+  tenant      Tenant?  @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  memberships Membership[]
+
+  @@unique([tenantId, key])
+}
+
+/// Vínculo usuário ↔ cliente, com papel e restrição opcional por empresa/unidade.
+model Membership {
+  id         String   @id @default(uuid())
+  userId     String
+  tenantId   String
+  roleId     String
+  /// Vazio = todas as empresas do cliente
+  companyIds String[] @default([])
+  /// Vazio = todas as unidades das empresas permitidas
+  unitIds    String[] @default([])
+  createdAt  DateTime @default(now())
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tenant     Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  role       Role     @relation(fields: [roleId], references: [id])
+
+  @@unique([userId, tenantId])
+}
+
+/// Trilha de auditoria (append-only). Não grava dados de saúde nem senhas.
+model AuditLog {
+  id        String   @id @default(uuid())
+  tenantId  String?
+  userId    String?
+  action    String
+  entity    String
+  entityId  String?
+  /// Resumo das alterações (campos sensíveis são mascarados)
+  data      Json?
+  ip        String?
+  createdAt DateTime @default(now())
+
+  @@index([tenantId, entity, entityId])
+  @@index([tenantId, createdAt])
+}
+
+// ------------------------------------------------------------------
+// Estrutura organizacional
+// ------------------------------------------------------------------
+
+model Company {
+  id         String   @id @default(uuid())
+  tenantId   String
+  name       String
+  tradeName  String?
+  cnpj       String
+  cnae       String?
+  riskDegree Int?
+  address    String?
+  city       String?
+  uf         String?
+  active     Boolean  @default(true)
+  isDemo     Boolean  @default(false)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+  tenant     Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  units      Unit[]
+  jobRoles   JobRole[]
+  workers    Worker[]
+
+  @@unique([tenantId, cnpj])
+}
+
+/// Unidade / estabelecimento
+model Unit {
+  id          String   @id @default(uuid())
+  tenantId    String
+  companyId   String
+  name        String
+  /// 1 = CNPJ, 3 = CAEPF, 4 = CNO (tipo de inscrição do estabelecimento)
+  inscriptionType   Int?
+  inscriptionNumber String?
+  address     String?
+  city        String?
+  uf          String?
+  active      Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  company     Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  sectors     Sector[]
+  workers     Worker[]
+
+  @@index([tenantId, companyId])
+}
+
+/// Setor / local de trabalho / ambiente
+model Sector {
+  id          String   @id @default(uuid())
+  tenantId    String
+  unitId      String
+  name        String
+  description String?
+  /// Descrição do ambiente de trabalho (usada em S-2240)
+  environmentDescription String?
+  active      Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  unit        Unit     @relation(fields: [unitId], references: [id], onDelete: Cascade)
+  workers     Worker[]
+  risks       Risk[]
+
+  @@index([tenantId, unitId])
+}
+
+/// Cargo
+model JobRole {
+  id          String   @id @default(uuid())
+  tenantId    String
+  companyId   String
+  name        String
+  cbo         String?
+  description String?
+  /// Descrição das atividades (usada em S-2240)
+  activities  String?
+  active      Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  company     Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  workers     Worker[]
+
+  @@index([tenantId, companyId])
+}
+
+enum WorkerStatus {
+  ativo
+  afastado
+  desligado
+}
+
+model Worker {
+  id              String       @id @default(uuid())
+  tenantId        String
+  companyId       String
+  unitId          String
+  sectorId        String?
+  jobRoleId       String?
+  name            String
+  cpf             String
+  birthDate       DateTime?    @db.Date
+  gender          String?
+  /// Matrícula no eSocial
+  registration    String?
+  /// Código de categoria do trabalhador (eSocial)
+  categoryCode    String?
+  /// Função (texto livre)
+  function        String?
+  admissionDate   DateTime?    @db.Date
+  terminationDate DateTime?    @db.Date
+  status          WorkerStatus @default(ativo)
+  email           String?
+  isDemo          Boolean      @default(false)
+  /// Anonimizado por solicitação LGPD
+  anonymizedAt    DateTime?
+  createdAt       DateTime     @default(now())
+  updatedAt       DateTime     @updatedAt
+  company         Company      @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  unit            Unit         @relation(fields: [unitId], references: [id])
+  sector          Sector?      @relation(fields: [sectorId], references: [id])
+  jobRole         JobRole?     @relation(fields: [jobRoleId], references: [id])
+  exams           Exam[]
+  accidents       Accident[]
+  ppeDeliveries   PpeDelivery[]
+  trainings       TrainingRecord[]
+
+  @@unique([tenantId, companyId, cpf])
+  @@index([tenantId, unitId])
+}
+
+// ------------------------------------------------------------------
+// SST
+// ------------------------------------------------------------------
+
+enum RiskType {
+  fisico
+  quimico
+  biologico
+  ergonomico
+  acidente
+  psicossocial
+}
+
+/// Inventário de perigos e riscos por setor (base do PGR e do S-2240)
+model Risk {
+  id           String   @id @default(uuid())
+  tenantId     String
+  sectorId     String
+  type         RiskType
+  hazard       String
+  description  String?
+  source       String?
+  /// Código do agente nocivo (Tabela 24 do eSocial), quando aplicável
+  agentCode    String?
+  /// Intensidade/concentração e unidade (quando avaliado quantitativamente)
+  intensity    String?
+  unit         String?
+  technique    String?
+  probability  Int
+  severity     Int
+  /// Nível = probabilidade × severidade (matriz configurável — ver docs/RELATORIOS.md)
+  level        Int
+  controls     String?
+  epcEfficient Boolean?
+  epiEfficient Boolean?
+  /// Certificados de Aprovação (CA) de EPI usados no controle, separados por vírgula
+  epiCas       String?
+  assessedAt   DateTime? @db.Date
+  assessedBy   String?
+  active       Boolean  @default(true)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+  sector       Sector   @relation(fields: [sectorId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId, sectorId])
+}
+
+enum ExamType {
+  admissional
+  periodico
+  retorno_trabalho
+  mudanca_risco
+  monitoracao_pontual
+  demissional
+}
+
+enum ExamResult {
+  apto
+  inapto
+}
+
+/// Exames ocupacionais / ASO — DADO DE SAÚDE: acesso exige permissão health.*
+model Exam {
+  id            String     @id @default(uuid())
+  tenantId      String
+  workerId      String
+  type          ExamType
+  examDate      DateTime   @db.Date
+  result        ExamResult?
+  physicianName String?
+  physicianCrm  String?
+  physicianUf   String?
+  /// Médico responsável pelo PCMSO
+  pcmsoResponsibleName String?
+  pcmsoResponsibleCrm  String?
+  pcmsoResponsibleUf   String?
+  /// Procedimentos realizados — JSON criptografado [{code, date, description}]
+  proceduresEnc String?
+  /// Observações clínicas — criptografado
+  notesEnc      String?
+  nextDueDate   DateTime?  @db.Date
+  createdAt     DateTime   @default(now())
+  updatedAt     DateTime   @updatedAt
+  worker        Worker     @relation(fields: [workerId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId, workerId])
+  @@index([tenantId, nextDueDate])
+}
+
+enum AccidentType {
+  tipico
+  trajeto
+  doenca
+  incidente
+  quase_acidente
+}
+
+enum AccidentStatus {
+  registrado
+  em_investigacao
+  concluido
+}
+
+model Accident {
+  id              String         @id @default(uuid())
+  tenantId        String
+  companyId       String
+  unitId          String
+  workerId        String?
+  type            AccidentType
+  status          AccidentStatus @default(registrado)
+  occurredAt      DateTime
+  hoursWorked     String?
+  description     String
+  location        String?
+  /// Códigos das tabelas oficiais (parte atingida, agente causador, situação geradora, natureza da lesão)
+  bodyPartCode    String?
+  laterality      String?
+  causingAgentCode String?
+  situationCode   String?
+  injuryNatureCode String?
+  death           Boolean        @default(false)
+  deathDate       DateTime?      @db.Date
+  policeReport    Boolean        @default(false)
+  hospitalized    Boolean        @default(false)
+  medicalLeave    Boolean        @default(false)
+  /// Dados de atestado (saúde) — criptografados: {cid, physicianName, crm, uf, date, leaveDays, diagnosis}
+  medicalEnc      String?
+  /// Investigação
+  rootCause       String?
+  investigation   String?
+  witnesses       String?
+  catNumber       String?
+  createdAt       DateTime       @default(now())
+  updatedAt       DateTime       @updatedAt
+  worker          Worker?        @relation(fields: [workerId], references: [id])
+
+  @@index([tenantId, occurredAt])
+}
+
+/// EPI — catálogo
+model Ppe {
+  id          String   @id @default(uuid())
+  tenantId    String
+  name        String
+  ca          String?
+  caValidUntil DateTime? @db.Date
+  replaceDays Int?
+  active      Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  deliveries  PpeDelivery[]
+}
+
+model PpeDelivery {
+  id          String   @id @default(uuid())
+  tenantId    String
+  workerId    String
+  ppeId       String
+  quantity    Int      @default(1)
+  deliveredAt DateTime @db.Date
+  replaceBy   DateTime? @db.Date
+  reason      String?
+  createdAt   DateTime @default(now())
+  worker      Worker   @relation(fields: [workerId], references: [id], onDelete: Cascade)
+  ppe         Ppe      @relation(fields: [ppeId], references: [id])
+
+  @@index([tenantId, workerId])
+}
+
+model Training {
+  id           String   @id @default(uuid())
+  tenantId     String
+  name         String
+  reference    String?
+  workloadHours Int?
+  validityMonths Int?
+  active       Boolean  @default(true)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+  records      TrainingRecord[]
+}
+
+model TrainingRecord {
+  id          String   @id @default(uuid())
+  tenantId    String
+  trainingId  String
+  workerId    String
+  completedAt DateTime @db.Date
+  validUntil  DateTime? @db.Date
+  instructor  String?
+  attended    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  training    Training @relation(fields: [trainingId], references: [id], onDelete: Cascade)
+  worker      Worker   @relation(fields: [workerId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId, validUntil])
+}
+
+// ------------------------------------------------------------------
+// Atividades, planos de ação e aprovações
+// ------------------------------------------------------------------
+
+enum TaskStatus {
+  aberta
+  em_andamento
+  aguardando_aprovacao
+  concluida
+  cancelada
+}
+
+enum Priority {
+  baixa
+  media
+  alta
+  critica
+}
+
+enum Recurrence {
+  nenhuma
+  diaria
+  semanal
+  mensal
+  trimestral
+  semestral
+  anual
+}
+
+model ActionPlan {
+  id          String     @id @default(uuid())
+  tenantId    String
+  companyId   String?
+  unitId      String?
+  title       String
+  objective   String?
+  ownerId     String?
+  origin      String?
+  status      String     @default("aberto")
+  dueDate     DateTime?  @db.Date
+  createdAt   DateTime   @default(now())
+  updatedAt   DateTime   @updatedAt
+  tasks       Task[]
+
+  @@index([tenantId])
+}
+
+model Task {
+  id               String      @id @default(uuid())
+  tenantId         String
+  companyId        String?
+  unitId           String?
+  actionPlanId     String?
+  title            String
+  description      String?
+  assigneeId       String?
+  createdById      String
+  priority         Priority    @default(media)
+  status           TaskStatus  @default(aberta)
+  dueDate          DateTime?   @db.Date
+  recurrence       Recurrence  @default(nenhuma)
+  requiresApproval Boolean     @default(false)
+  approverId       String?
+  approvedAt       DateTime?
+  approvedById     String?
+  rejectionReason  String?
+  /// Origem (manual, inspecao, acidente, documento, risco, exame, esocial) e id do registro de origem
+  origin           String      @default("manual")
+  originId         String?
+  completedAt      DateTime?
+  /// Tarefa da recorrência anterior
+  previousTaskId   String?
+  createdAt        DateTime    @default(now())
+  updatedAt        DateTime    @updatedAt
+  actionPlan       ActionPlan? @relation(fields: [actionPlanId], references: [id], onDelete: SetNull)
+  comments         TaskComment[]
+
+  @@index([tenantId, status])
+  @@index([tenantId, assigneeId])
+  @@index([tenantId, dueDate])
+}
+
+model TaskComment {
+  id        String   @id @default(uuid())
+  tenantId  String
+  taskId    String
+  userId    String
+  body      String
+  createdAt DateTime @default(now())
+  task      Task     @relation(fields: [taskId], references: [id], onDelete: Cascade)
+
+  @@index([taskId])
+}
+
+/// Arquivo anexado (evidências, comprovantes). entity = "task" | "accident" | "ppe_delivery" | "training_record" ...
+model Attachment {
+  id           String   @id @default(uuid())
+  tenantId     String
+  entity       String
+  entityId     String
+  fileName     String
+  mimeType     String
+  size         Int
+  storageKey   String
+  sha256       String
+  uploadedById String
+  createdAt    DateTime @default(now())
+
+  @@index([tenantId, entity, entityId])
+}
+
+// ------------------------------------------------------------------
+// Documentos (com versões, revisão e aprovação)
+// ------------------------------------------------------------------
+
+enum DocumentType {
+  PGR
+  PCMSO
+  LTCAT
+  PPP
+  ORDEM_SERVICO
+  FICHA_EPI
+  PROCEDIMENTO
+  LAUDO
+  LICENCA_AMBIENTAL
+  CERTIFICADO
+  OUTRO
+}
+
+enum DocumentStatus {
+  rascunho
+  em_revisao
+  aprovado
+  obsoleto
+}
+
+model Document {
+  id                 String          @id @default(uuid())
+  tenantId           String
+  companyId          String
+  unitId             String?
+  type               DocumentType
+  title              String
+  code               String?
+  status             DocumentStatus  @default(rascunho)
+  responsibleId      String?
+  /// Profissional legalmente habilitado responsável (nome e registro: CREA, CRM etc.)
+  technicalResponsible String?
+  technicalRegistry  String?
+  validFrom          DateTime?       @db.Date
+  validUntil         DateTime?       @db.Date
+  currentVersion     Int             @default(0)
+  notes              String?
+  createdAt          DateTime        @default(now())
+  updatedAt          DateTime        @updatedAt
+  versions           DocumentVersion[]
+
+  @@index([tenantId, companyId])
+  @@index([tenantId, validUntil])
+}
+
+enum VersionStatus {
+  rascunho
+  em_revisao
+  aprovada
+  reprovada
+}
+
+model DocumentVersion {
+  id            String        @id @default(uuid())
+  tenantId      String
+  documentId    String
+  version       Int
+  status        VersionStatus @default(rascunho)
+  fileName      String
+  mimeType      String
+  size          Int
+  storageKey    String
+  sha256        String
+  changeNotes   String?
+  uploadedById  String
+  reviewedById  String?
+  reviewedAt    DateTime?
+  reviewNotes   String?
+  approvedById  String?
+  approvedAt    DateTime?
+  /// Registro profissional declarado por quem aprovou (ex.: CREA-CE 000000)
+  approverRegistry String?
+  createdAt     DateTime      @default(now())
+  document      Document      @relation(fields: [documentId], references: [id], onDelete: Cascade)
+
+  @@unique([documentId, version])
+}
+
+// ------------------------------------------------------------------
+// Notificações e relatórios agendados
+// ------------------------------------------------------------------
+
+model Notification {
+  id        String    @id @default(uuid())
+  tenantId  String
+  userId    String
+  kind      String
+  title     String
+  body      String?
+  link      String?
+  /// Evita duplicar o mesmo alerta (ex.: "doc-vencendo:<id>:2026-10-18")
+  dedupeKey String?
+  readAt    DateTime?
+  emailedAt DateTime?
+  createdAt DateTime  @default(now())
+
+  @@unique([userId, dedupeKey])
+  @@index([userId, readAt])
+}
+
+model ReportSchedule {
+  id          String    @id @default(uuid())
+  tenantId    String
+  name        String
+  reportKey   String
+  format      String    @default("xlsx")
+  filters     Json      @default("{}")
+  /// diario | semanal | mensal
+  frequency   String
+  /// IDs de usuários do cliente. Cada envio confere se o destinatário ainda tem permissão.
+  recipientIds String[]
+  createdById String
+  active      Boolean   @default(true)
+  lastRunAt   DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  @@index([tenantId])
+}
+
+// ------------------------------------------------------------------
+// eSocial (módulo isolado)
+// ------------------------------------------------------------------
+
+/// Tabelas oficiais do eSocial importadas pelo administrador (ex.: "24", "27").
+model EsocialTableEntry {
+  id          String  @id @default(uuid())
+  table       String
+  code        String
+  description String
+  validFrom   String?
+  validUntil  String?
+
+  @@unique([table, code])
+}
+
+enum EsocialEventType {
+  S2210
+  S2220
+  S2240
+}
+
+/// Estados possíveis. "enviado"/"processado"/"rejeitado" só são gravados a partir de
+/// resposta do serviço oficial (ou recibo informado manualmente, marcado como tal).
+enum EsocialStatus {
+  rascunho
+  com_pendencias
+  validado
+  exportado
+  na_fila
+  enviado
+  processado
+  rejeitado
+  erro_transmissao
+  recibo_manual
+}
+
+model EsocialEvent {
+  id              String           @id @default(uuid())
+  tenantId        String
+  companyId       String
+  workerId        String?
+  type            EsocialEventType
+  /// Registro de origem: accident | exam | worker
+  sourceType      String
+  sourceId        String
+  status          EsocialStatus    @default(rascunho)
+  currentVersion  Int              @default(0)
+  isRetification  Boolean          @default(false)
+  originalEventId String?
+  /// Recibo / protocolo oficiais (ou informados manualmente, ver receiptSource)
+  receiptNumber   String?
+  protocolNumber  String?
+  receiptSource   String?
+  receiptAt       DateTime?
+  createdById     String
+  createdAt       DateTime         @default(now())
+  updatedAt       DateTime         @updatedAt
+  versions        EsocialEventVersion[]
+  submissions     EsocialSubmission[]
+  logs            EsocialLog[]
+
+  @@index([tenantId, type, status])
+  @@index([tenantId, sourceType, sourceId])
+}
+
+model EsocialEventVersion {
+  id               String       @id @default(uuid())
+  tenantId         String
+  eventId          String
+  version          Int
+  /// Dados preparados do evento — JSON criptografado (pode conter dados de saúde)
+  payloadEnc       String
+  payloadHash      String
+  /// Lista de pendências/erros [{field, message, severity}]
+  issues           Json         @default("[]")
+  /// Versão de leiaute de referência configurada no momento da preparação
+  leiauteVersion   String?
+  /// XML gerado (criptografado) — somente quando houver adaptador de leiaute oficial carregado
+  xmlEnc           String?
+  createdById      String
+  createdAt        DateTime     @default(now())
+  event            EsocialEvent @relation(fields: [eventId], references: [id], onDelete: Cascade)
+
+  @@unique([eventId, version])
+}
+
+model EsocialSubmission {
+  id              String       @id @default(uuid())
+  tenantId        String
+  eventId         String
+  versionId       String
+  environment     String
+  status          String
+  protocolNumber  String?
+  receiptNumber   String?
+  responseCode    String?
+  /// Mensagem de retorno do serviço oficial (sem dados pessoais)
+  responseMessage String?
+  createdAt       DateTime     @default(now())
+  finishedAt      DateTime?
+  event           EsocialEvent @relation(fields: [eventId], references: [id], onDelete: Cascade)
+}
+
+/// Log técnico do eSocial — NUNCA contém CPF, nome ou dados de saúde.
+model EsocialLog {
+  id        String       @id @default(uuid())
+  tenantId  String
+  eventId   String
+  level     String
+  code      String
+  message   String
+  createdAt DateTime     @default(now())
+  event     EsocialEvent @relation(fields: [eventId], references: [id], onDelete: Cascade)
+
+  @@index([eventId])
+}
