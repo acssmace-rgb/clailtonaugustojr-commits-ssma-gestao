@@ -6,3 +6,4 @@ storage/
 coverage/
 apps/api/storage/
 storage-test/
+apps/web/tsconfig.tsbuildinfo

@@ -123,7 +123,7 @@ export async function reportRoutes(app: FastifyInstance) {
         formula: 'Concluídas no período até o fim do dia do prazo ÷ concluídas no período que tinham prazo × 100.',
       });
       const byStatus = await prisma.task.groupBy({ by: ['status'], where: w, _count: { _all: true } });
-      charts.tarefasPorStatus = byStatus.map((b) => ({ label: b.status.replace(/_/g, ' '), value: b._count._all }));
+      charts.tarefasPorStatus = byStatus.map((b) => ({ label: b.status, value: b._count._all }));
     }
     if (has('documents.read')) {
       const w = { ...scope('companyId', 'unitId'), status: { not: 'obsoleto' as const } };
@@ -152,7 +152,7 @@ export async function reportRoutes(app: FastifyInstance) {
       const by = await prisma.accident.groupBy({ by: ['type'], where: { ...scope('companyId', 'unitId'), occurredAt: period }, _count: { _all: true } });
       const total = by.reduce((a, b) => a + b._count._all, 0);
       kpis.push({ key: 'ocorrencias', label: 'Ocorrências no período', value: total, formula: 'Acidentes, incidentes e quase acidentes com data no período filtrado (todos, se sem período).' });
-      charts.ocorrenciasPorTipo = by.map((b) => ({ label: b.type.replace('_', ' '), value: b._count._all }));
+      charts.ocorrenciasPorTipo = by.map((b) => ({ label: b.type, value: b._count._all }));
     }
     if (has('risks.read')) {
       const rs = await prisma.risk.findMany({ where: { ...scope('sector.unit.companyId', 'sector.unitId'), active: true }, select: { level: true } });
@@ -166,7 +166,7 @@ export async function reportRoutes(app: FastifyInstance) {
         where: { ...scope('companyId'), type: has('health.read') ? undefined : { not: 'S2220' } },
         _count: { _all: true },
       });
-      charts.esocialPorStatus = by.map((b) => ({ label: b.status.replace(/_/g, ' '), value: b._count._all }));
+      charts.esocialPorStatus = by.map((b) => ({ label: b.status, value: b._count._all }));
       const pend = by.filter((b) => ['com_pendencias', 'rejeitado', 'erro_transmissao'].includes(b.status)).reduce((a, b) => a + b._count._all, 0);
       kpis.push({ key: 'esocial_pendentes', label: 'Eventos eSocial com pendência', value: pend, tone: pend ? 'warn' : 'ok', formula: 'Eventos com status com pendências, rejeitado ou erro de transmissão.' });
     }

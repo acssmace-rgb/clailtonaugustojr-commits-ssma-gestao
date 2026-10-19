@@ -1,0 +1,39 @@
+# Ambiente local/homologação. Em produção use banco gerenciado (com criptografia em repouso),
+# armazenamento S3 e segredos em um serviço de segredos.
+services:
+  db:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: ssma
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-ssma_dev}
+      POSTGRES_DB: ssma
+    volumes: [dbdata:/var/lib/postgresql/data]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ssma"]
+      interval: 5s
+      retries: 10
+  api:
+    build: .
+    env_file: .env
+    environment:
+      NODE_ENV: production
+      DATABASE_URL: postgresql://ssma:${POSTGRES_PASSWORD:-ssma_dev}@db:5432/ssma?schema=public
+      APP_ORIGIN: ${APP_ORIGIN:-http://localhost:3333}
+      STORAGE_DIR: /app/apps/api/storage
+    ports: ["3333:3333"]
+    volumes: [files:/app/apps/api/storage]
+    depends_on: { db: { condition: service_healthy } }
+  worker:
+    build: .
+    env_file: .env
+    environment:
+      NODE_ENV: production
+      DATABASE_URL: postgresql://ssma:${POSTGRES_PASSWORD:-ssma_dev}@db:5432/ssma?schema=public
+      APP_ORIGIN: ${APP_ORIGIN:-http://localhost:3333}
+      STORAGE_DIR: /app/apps/api/storage
+    command: ["node", "dist/worker.js"]
+    volumes: [files:/app/apps/api/storage]
+    depends_on: { api: { condition: service_started } }
+volumes:
+  dbdata:
+  files:

@@ -149,16 +149,18 @@ export async function taskRoutes(app: FastifyInstance) {
 
   r.get('/tasks/:id', { preValidation: app.requirePerm('tasks.read'), schema: { tags: [TAG], summary: 'Detalhe da tarefa com comentários, evidências e histórico', params: z.object({ id: zId }) } }, async (req) => {
     const t = await loadTask(req, req.params.id);
-    const [comments, attachments, history] = await Promise.all([
+    const [comments, attachments, history, actionPlan] = await Promise.all([
       prisma.taskComment.findMany({ where: { taskId: t.id }, orderBy: { createdAt: 'asc' } }),
       prisma.attachment.findMany({ where: { tenantId: t.tenantId, entity: 'task', entityId: t.id }, orderBy: { createdAt: 'desc' } }),
       prisma.auditLog.findMany({ where: { tenantId: t.tenantId, entity: 'task', entityId: t.id }, orderBy: { createdAt: 'desc' }, take: 100 }),
+      t.actionPlanId ? prisma.actionPlan.findFirst({ where: { id: t.actionPlanId, tenantId: t.tenantId }, select: { id: true, title: true } }) : null,
     ]);
     const userIds = [...comments.map((c) => c.userId), ...history.map((h) => h.userId), ...attachments.map((a) => a.uploadedById)].filter(Boolean) as string[];
     const users = await prisma.user.findMany({ where: { id: { in: userIds } }, select: { id: true, name: true } });
     const name = new Map(users.map((u) => [u.id, u.name]));
     return {
       ...t,
+      actionPlan,
       comments: comments.map((c) => ({ ...c, userName: name.get(c.userId) })),
       attachments: attachments.map((a) => ({ ...a, storageKey: undefined, uploadedByName: name.get(a.uploadedById) })),
       history: history.map((h) => ({ ...h, userName: h.userId ? name.get(h.userId) : null })),

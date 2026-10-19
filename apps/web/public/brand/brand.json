@@ -1,0 +1,23 @@
+{
+  "_origem": "Identidade visual extraída do manual 'Identidade SSMA' (faive design) e dos logotipos da pasta IDENTIDADE VISUAL SSMA no Google Drive. Edite este arquivo para trocar a marca sem alterar código.",
+  "name": "SSMA",
+  "productName": "SSMA Gestão",
+  "tagline": "Assessoria e Consultoria em Segurança do Trabalho",
+  "logos": {
+    "darkBackground": "/brand/logo-horizontal-fundo-escuro.png",
+    "lightBackground": "/brand/logo-horizontal-fundo-claro.png",
+    "fullDarkBackground": "/brand/logo-completo-fundo-escuro.png",
+    "symbol": "/brand/simbolo-verde.png"
+  },
+  "colors": {
+    "primary": "#63E168",
+    "dark": "#2C302E",
+    "neutral": "#BCBFBC"
+  },
+  "fonts": {
+    "heading": "Fauna",
+    "body": "Corbel",
+    "headingFile": null,
+    "bodyFile": null
+  }
+}

@@ -1,0 +1,9 @@
+node_modules
+**/node_modules
+.env
+**/.env
+**/storage
+**/storage-test
+apps/web/dist
+apps/api/dist
+.git
