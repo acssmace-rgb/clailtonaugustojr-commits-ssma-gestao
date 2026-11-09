@@ -1,0 +1,5 @@
+ssma-gestao-backup*.json
+*.backup.json
+dados/
+.DS_Store
+Thumbs.db
