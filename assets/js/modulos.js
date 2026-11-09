@@ -8,7 +8,7 @@
     if (atual && !l.find((x) => x[0] === atual) && S.cliente(atual)) l.push([atual, S.nomeCliente(atual)]);
     return l;
   };
-  const colCliente = { r: 'Cliente', v: (x) => `<a href="#/cliente/${x.clienteId}">${e(S.nomeCliente(x.clienteId))}</a>`, ord: (x) => S.nomeCliente(x.clienteId) };
+  const colCliente = { r: 'Cliente', v: (x) => `<a href="#cliente-${x.clienteId}">${e(S.nomeCliente(x.clienteId))}</a>`, ord: (x) => S.nomeCliente(x.clienteId) };
 
   const M = {};
 
@@ -35,7 +35,7 @@
     antesGravar(o) { o.cnpj = U.fmtCNPJ(o.cnpj); o.ativo = o.ativo !== 'false' && o.ativo !== false; if (!o.repositorio) o.repositorio = 'cliente-' + U.slug(o.fantasia || o.razaoSocial); },
     validar(o) { if (o.cnpj && !U.cnpjValido(o.cnpj)) return 'CNPJ inválido. Confira os dígitos.'; },
     colunas: [
-      { r: 'Cliente', v: (c) => `<a href="#/cliente/${c.id}"><b>${e(c.fantasia || c.razaoSocial)}</b></a><div class="sub">${e(c.razaoSocial)}</div>`, ord: (c) => c.fantasia || c.razaoSocial },
+      { r: 'Cliente', v: (c) => `<a href="#cliente-${c.id}"><b>${e(c.fantasia || c.razaoSocial)}</b></a><div class="sub">${e(c.razaoSocial)}</div>`, ord: (c) => c.fantasia || c.razaoSocial },
       { r: 'CNPJ', v: (c) => e(c.cnpj || '') },
       { r: 'GR', v: (c) => e(c.grauRisco || '—') },
       { r: 'Empreg.', v: (c) => e(c.empregados || '—') },
@@ -312,7 +312,7 @@
     if (presets) dados = Object.assign(dados, presets);
     if (chave === 'clientes' && !novo) dados.ativo = String(obj.ativo !== false);
     const campos = mod.campos.filter((c) => !(c.soNovo && !novo));
-    if (!S.clientesAtivos().length && !mod.semCliente) { UI.toast('Cadastre um cliente primeiro.'); location.hash = '#/clientes'; return; }
+    if (!S.clientesAtivos().length && !mod.semCliente) { UI.toast('Cadastre um cliente primeiro.'); location.hash = '#clientes'; return; }
     UI.modal({
       titulo: `${novo ? 'Novo' : 'Editar'} ${mod.singular}`, largo: mod.largo,
       corpo: `<form class="form" id="frm" autocomplete="off">${campos.map((c) => campoHTML(c, dados[c.n])).join('')}</form>`,
@@ -324,13 +324,13 @@
         frm.addEventListener('change', (ev) => atualizar(ev.target.name));
         frm.addEventListener('input', (ev) => { if (ev.target.tagName === 'TEXTAREA') atualizar(ev.target.name); });
         atualizar(null);
-        m.addEventListener('click', (ev) => {
+        m.addEventListener('click', async (ev) => {
           const a = ev.target.closest('[data-m]'); if (!a) return; ev.preventDefault();
           if (a.dataset.m === 'cancelar') return UI.fechar();
           if (a.dataset.m === 'excluir') {
-            if (!confirm(chave === 'clientes' ? 'Excluir este cliente e TODOS os registros dele (documentos, treinamentos, pendências…)?' : `Excluir este ${mod.singular}?`)) return;
+            if (!await UI.confirmar(chave === 'clientes' ? 'Excluir este cliente e TODOS os registros dele (documentos, treinamentos, pendências…)?' : `Excluir este ${mod.singular}?`, { ok: 'Excluir', perigo: true })) return;
             chave === 'clientes' ? S.removerCliente(obj.id) : S.remover(mod.colecao, obj.id);
-            UI.fechar(); UI.toast('Excluído.'); chave === 'clientes' ? (location.hash = '#/clientes') : APP.render(); return;
+            UI.fechar(); UI.toast('Excluído.'); chave === 'clientes' ? (location.hash = '#clientes') : APP.render(); return;
           }
           if (!frm.reportValidity()) return;
           const o = novo ? {} : { id: obj.id };
@@ -341,8 +341,8 @@
           });
           mod.antesGravar && mod.antesGravar(o);
           const v = mod.validar && mod.validar(o);
-          if (typeof v === 'string') return alert(v);
-          if (v && v.aviso && !confirm(v.aviso)) return;
+          if (typeof v === 'string') return UI.avisar(v);
+          if (v && v.aviso && !await UI.confirmar(v.aviso, { ok: 'Salvar mesmo assim' })) return;
           const salvo = S.gravar(mod.colecao, o);
           mod.depoisGravar && mod.depoisGravar(salvo, novo);
           UI.fechar(); UI.toast('Salvo.');

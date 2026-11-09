@@ -19,10 +19,26 @@
       const pri = f.querySelector('input,select,textarea'); pri && pri.focus();
     },
     fechar() { const m = $('#modal'); m && m.remove(); },
+    // Confirmação/entrada dentro da página (o navegador embutido bloqueia confirm/prompt)
+    confirmar(msg, o) {
+      o = o || {};
+      return new Promise((ok) => {
+        const f = document.createElement('div'); f.className = 'modal-fundo'; f.style.zIndex = 60;
+        f.innerHTML = `<div class="modal" style="max-width:480px" role="alertdialog" aria-modal="true"><div class="m-cab"><h2>${e(o.titulo || 'Confirmação')}</h2></div>
+          <div class="m-corpo"><div style="white-space:pre-wrap">${e(msg)}</div>${o.campo ? `<input id="dlgCampo" style="margin-top:12px" value="${e(o.valor || '')}" placeholder="${e(o.campo)}">` : ''}</div>
+          <div class="m-rodape">${o.soOk ? '' : '<button class="btn" data-r="n">Cancelar</button>'}<button class="btn ${o.perigo ? 'escuro' : 'primario'}" data-r="s">${e(o.ok || 'OK')}</button></div></div>`;
+        document.body.appendChild(f);
+        const fim = (v) => { f.remove(); ok(v); };
+        f.addEventListener('click', (ev) => { const b = ev.target.closest('[data-r]'); if (!b) return; ev.stopPropagation(); fim(b.dataset.r === 's' ? (o.campo ? f.querySelector('#dlgCampo').value : true) : null); });
+        f.addEventListener('keydown', (ev) => { if (ev.key === 'Enter' && o.campo) fim(f.querySelector('#dlgCampo').value); if (ev.key === 'Escape') { ev.stopPropagation(); fim(null); } });
+        (f.querySelector('#dlgCampo') || f.querySelector('[data-r="s"]')).focus();
+      });
+    },
+    avisar(msg, titulo) { return UI.confirmar(msg, { soOk: true, titulo: titulo || 'Atenção' }); },
     toast(t) { const d = document.createElement('div'); d.className = 'toast'; d.textContent = t; document.body.appendChild(d); setTimeout(() => d.remove(), 2600); }
   };
   window.UI = UI;
-  document.addEventListener('keydown', (ev) => { if (ev.key === 'Escape') UI.fechar(); });
+  document.addEventListener('keydown', (ev) => { if (ev.key === 'Escape' && !ev.defaultPrevented) UI.fechar(); });
 
   // ---------- Navegação ----------
   const MENU = [
@@ -42,13 +58,13 @@
   function menu(rota) {
     const k = contadores();
     $('#menu').innerHTML = MENU.map(([g, itens]) => `<div class="grupo">${g}</div>` + itens.map(([r, i, t]) =>
-      `<a href="#/${r}" class="${rota === r || (rota === 'cliente' && r === 'clientes') ? 'ativo' : ''}"><span class="ico">${i}</span>${t}${k[r] ? `<span class="cont" title="vencidos/atrasados">${k[r]}</span>` : ''}</a>`).join('')).join('');
+      `<a href="#${r}" class="${rota === r || (rota === 'cliente' && r === 'clientes') ? 'ativo' : ''}"><span class="ico">${i}</span>${t}${k[r] ? `<span class="cont" title="vencidos/atrasados">${k[r]}</span>` : ''}</a>`).join('')).join('');
     $('#sidebar').classList.remove('aberta');
   }
 
   function render() {
     const h = location.hash.replace(/^#\/?/, '') || 'painel';
-    const [rota, arg] = h.split('/');
+    const [rota, arg] = h.startsWith('cliente-') ? ['cliente', h.slice(8)] : h.startsWith('cliente/') ? ['cliente', h.slice(8)] : [h];
     menu(rota);
     const tela = TELAS[rota] || (M[rota] ? () => telaLista(rota) : TELAS.painel);
     const r = tela(arg) || {};
@@ -113,17 +129,18 @@
     }).sort((a, b) => b.nv - a.nv || b.na - a.na);
     return {
       titulo: 'Painel',
-      acoes: `<button class="btn" onclick="location.hash='#/agenda'">Ver todos os prazos</button>`,
+      acoes: `<button class="btn" onclick="location.hash='#agenda'">Ver todos os prazos</button>`,
       html: `
-      ${!ativos.length ? `<div class="aviso verde"><b>Bem-vindo ao SSMA Gestão.</b> Cadastre seus clientes em <a href="#/clientes">Clientes</a> ou carregue dados de exemplo em <a href="#/config">Configurações</a> para conhecer o sistema.</div>` : ''}
+      ${S.lista('clientes').some((c) => c.exemplo) ? `<div class="aviso"><b>Você está vendo dados de exemplo (empresas e pessoas fictícias).</b> <button class="btn peq" data-acao="remexemplo">Remover exemplos</button> e cadastre seus clientes reais.</div>` : ''}
+      ${!ativos.length ? `<div class="aviso verde"><b>Bem-vindo ao SSMA Gestão.</b> Cadastre seus clientes em <a href="#clientes">Clientes</a> ou carregue dados de exemplo em <a href="#config">Configurações</a> para conhecer o sistema.</div>` : ''}
       <div class="grade k4" style="margin-bottom:18px">
-        <div class="kpi verde" onclick="location.hash='#/clientes'"><div class="rot">Clientes ativos</div><div class="val">${ativos.length}</div><div class="sub">${S.lista('clientes').length - ativos.length} inativo(s)</div></div>
-        <div class="kpi vermelho" onclick="location.hash='#/agenda'"><div class="rot">Vencidos</div><div class="val">${venc.length}</div><div class="sub">documentos, treinamentos e prazos</div></div>
-        <div class="kpi ambar" onclick="location.hash='#/agenda'"><div class="rot">A vencer</div><div class="val">${alerta.length}</div><div class="sub">próximos ${cfg.alertaDias} dias (docs/trein.)</div></div>
-        <div class="kpi azul" onclick="location.hash='#/pendencias'"><div class="rot">Pendências abertas</div><div class="val">${pend.length}</div><div class="sub">${atras.length} atrasada(s) · ${pend.filter((p) => p.status === 'aguardando').length} aguardando cliente</div></div>
+        <div class="kpi verde" onclick="location.hash='#clientes'"><div class="rot">Clientes ativos</div><div class="val">${ativos.length}</div><div class="sub">${S.lista('clientes').length - ativos.length} inativo(s)</div></div>
+        <div class="kpi vermelho" onclick="location.hash='#agenda'"><div class="rot">Vencidos</div><div class="val">${venc.length}</div><div class="sub">documentos, treinamentos e prazos</div></div>
+        <div class="kpi ambar" onclick="location.hash='#agenda'"><div class="rot">A vencer</div><div class="val">${alerta.length}</div><div class="sub">próximos ${cfg.alertaDias} dias (docs/trein.)</div></div>
+        <div class="kpi azul" onclick="location.hash='#pendencias'"><div class="rot">Pendências abertas</div><div class="val">${pend.length}</div><div class="sub">${atras.length} atrasada(s) · ${pend.filter((p) => p.status === 'aguardando').length} aguardando cliente</div></div>
       </div>
       <div class="grade k2">
-        <div class="cartao"><div class="cab"><h2>Próximos vencimentos</h2><div class="dir"><a href="#/agenda">ver todos</a></div></div>
+        <div class="cartao"><div class="cab"><h2>Próximos vencimentos</h2><div class="dir"><a href="#agenda">ver todos</a></div></div>
           ${tabelaVenc(proximos)}
         </div>
         <div>
@@ -146,7 +163,7 @@
       </div>
       <div class="cartao"><div class="cab"><h2>Situação por cliente</h2></div>
         ${linhasCli.length ? `<div class="tabela-wrap"><table class="tab"><thead><tr><th>Cliente</th><th>GR</th><th>PGR</th><th>PCMSO</th><th>Psicossocial NR-01</th><th>Vencidos</th><th>A vencer</th><th>Pendências</th></tr></thead><tbody>
-        ${linhasCli.map((l) => `<tr><td><span class="semaforo ${l.nv ? 'vencido' : l.na ? 'alerta' : 'ok'}"></span><a href="#/cliente/${l.c.id}">${e(l.c.fantasia || l.c.razaoSocial)}</a></td><td>${e(l.c.grauRisco || '—')}</td>
+        ${linhasCli.map((l) => `<tr><td><span class="semaforo ${l.nv ? 'vencido' : l.na ? 'alerta' : 'ok'}"></span><a href="#cliente-${l.c.id}">${e(l.c.fantasia || l.c.razaoSocial)}</a></td><td>${e(l.c.grauRisco || '—')}</td>
           <td>${l.temPGR ? '✔' : '<span class="selo vencido">Falta</span>'}</td><td>${l.temPCMSO ? '✔' : '<span class="selo vencido">Falta</span>'}</td>
           <td>${l.ps == null ? '<span class="selo alerta">Não iniciado</span>' : `<div class="barra" title="${l.ps}%"><div style="width:${l.ps}%"></div></div><span class="sub">${l.ps}%</span>`}</td>
           <td>${l.nv ? `<b style="color:var(--vermelho)">${l.nv}</b>` : '0'}</td><td>${l.na}</td><td>${l.np}</td></tr>`).join('')}
@@ -158,7 +175,7 @@
   function tabelaVenc(itens, semCliente) {
     if (!itens.length) return '<div class="vazio">Nada vencido ou a vencer no período. ✔</div>';
     return `<div class="tabela-wrap"><table class="tab"><thead><tr><th>Data</th>${semCliente ? '' : '<th>Cliente</th>'}<th>Tipo</th><th>Item</th><th>Situação</th></tr></thead><tbody>
-      ${itens.map((x) => `<tr><td>${U.br(x.venc)}</td>${semCliente ? '' : `<td><a href="#/cliente/${x.clienteId}">${e(S.nomeCliente(x.clienteId))}</a></td>`}<td>${e(x.tipo)}</td>
+      ${itens.map((x) => `<tr><td>${U.br(x.venc)}</td>${semCliente ? '' : `<td><a href="#cliente-${x.clienteId}">${e(S.nomeCliente(x.clienteId))}</a></td>`}<td>${e(x.tipo)}</td>
         <td><a href="#" data-acao="editar" data-mod="${x.rota}" data-id="${x.id}">${e(x.titulo)}</a></td><td>${U.seloSit(x.sit)}</td></tr>`).join('')}</tbody></table></div>`;
   }
 
@@ -184,7 +201,7 @@
 
   TELAS.cliente = (id) => {
     const c = S.cliente(id);
-    if (!c) return { titulo: 'Cliente não encontrado', html: '<div class="cartao">Cliente não encontrado. <a href="#/clientes">Voltar</a></div>' };
+    if (!c) return { titulo: 'Cliente não encontrado', html: '<div class="cartao">Cliente não encontrado. <a href="#clientes">Voltar</a></div>' };
     const aba = estado.abaCliente || 'resumo';
     const abas = [['resumo', 'Resumo'], ['documentos', 'Documentos'], ['treinamentos', 'Treinamentos'], ['pendencias', 'Pendências'], ['cipa', 'CIPA'], ['esocial', 'eSocial'], ['visitas', 'Visitas'], ['auditorias', 'Auditorias']];
     let corpo;
@@ -220,7 +237,7 @@
       titulo: 'Riscos psicossociais – NR-01 (GRO/PGR)',
       html: `<div class="aviso">A NR-01 exige que os fatores de risco psicossociais relacionados ao trabalho sejam identificados, avaliados e controlados no GRO e registrados no inventário de riscos do PGR. Use o checklist para acompanhar cada cliente.</div>
       <div class="cartao">${linhas.length ? `<div class="tabela-wrap"><table class="tab"><thead><tr><th>Cliente</th><th>Metodologia</th><th>Progresso</th><th>Última atualização</th><th></th></tr></thead><tbody>
-      ${linhas.map(({ c, p }) => { const st = p ? R.statusPsico(p) : null; return `<tr><td><a href="#/cliente/${c.id}">${e(c.fantasia || c.razaoSocial)}</a></td><td>${e((p && p.metodologia) || '—')}</td>
+      ${linhas.map(({ c, p }) => { const st = p ? R.statusPsico(p) : null; return `<tr><td><a href="#cliente-${c.id}">${e(c.fantasia || c.razaoSocial)}</a></td><td>${e((p && p.metodologia) || '—')}</td>
         <td style="min-width:180px">${st ? `<div class="barra"><div style="width:${st.pct}%"></div></div><span class="sub">${st.ok}/${st.tot} etapas</span>` : '<span class="selo alerta">Não iniciado</span>'}</td>
         <td>${p ? U.br((p.atualizadoEm || '').slice(0, 10)) : '—'}</td><td class="acoes"><button class="btn peq" data-acao="psico" data-id="${c.id}">Checklist</button></td></tr>`; }).join('')}
       </tbody></table></div>` : '<div class="vazio">Nenhum cliente ativo.</div>'}</div>`
@@ -288,7 +305,7 @@
         <div class="cartao"><h2>Backup e dados</h2><div class="faixa-verde"></div>
           <p class="mudo">Os dados ficam no armazenamento local deste navegador. Faça backup com frequência e guarde o arquivo em local seguro (Drive da SSMA) — <b>nunca</b> em repositório público.</p>
           <div class="linha"><button class="btn primario" data-acao="backup">Baixar backup (.json)</button>
-          <label class="btn">Restaurar backup<input type="file" accept=".json,application/json" id="restaurar" hidden></label></div>
+          <label class="btn">Restaurar backup<input type="file" accept=".json,application/json" id="restaurar" hidden></label><button class="btn" data-acao="colarbackup">Colar backup</button></div>
           <div class="linha" style="margin-top:12px"><button class="btn" data-acao="exemplo">Carregar dados de exemplo</button><button class="btn perigo" data-acao="zerar">Apagar todos os dados</button></div>
           <p class="mudo" style="margin-top:10px">${S.lista('clientes').length} clientes · ${S.lista('documentos').length} documentos · ${S.lista('treinamentos').length} treinamentos · ${S.lista('pendencias').length} pendências · uso aprox. ${Math.round((localStorage.getItem('ssma-gestao-v1') || '').length / 1024)} KB</p>
         </div>
@@ -309,17 +326,21 @@
           const t = c[i.dataset.val].find((x) => x.id === i.dataset.id); t.validade = i.value === '' ? null : +i.value; S.salvar(); UI.toast('Validade atualizada.');
         });
         document.querySelectorAll('[data-img]').forEach((i) => i.onchange = () => {
-          const f = i.files[0]; if (!f) return; if (f.size > 600 * 1024) return alert('Imagem muito grande (máx. 600 KB). Reduza antes de carregar.');
+          const f = i.files[0]; if (!f) return; if (f.size > 600 * 1024) return UI.avisar('Imagem muito grande (máx. 600 KB). Reduza antes de carregar.');
           const r = new FileReader(); r.onload = () => { c[i.dataset.img] = r.result; S.salvar(); render(); }; r.readAsDataURL(f);
         });
         $('#restaurar').onchange = (ev) => {
           const f = ev.target.files[0]; if (!f) return;
-          if (!confirm('Restaurar este backup vai SUBSTITUIR todos os dados atuais. Continuar?')) return;
-          const r = new FileReader(); r.onload = () => { try { S.importar(r.result); UI.toast('Backup restaurado.'); render(); } catch (err) { alert(err.message); } }; r.readAsText(f);
+          const r = new FileReader(); r.onload = () => restaurar(r.result); r.readAsText(f);
         };
       }
     };
   };
+
+  async function restaurar(txt) {
+    if (!await UI.confirmar('Restaurar este backup vai SUBSTITUIR todos os dados atuais. Continuar?', { ok: 'Restaurar', perigo: true })) return;
+    try { S.importar(txt); UI.fechar(); UI.toast('Backup restaurado.'); render(); } catch (err) { UI.avisar(err.message); }
+  }
 
   // ---------- Ações (delegação global) ----------
   document.addEventListener('click', (ev) => {
@@ -337,7 +358,7 @@
       relvisita: () => IMP.relatorioVisita(S.obter('visitas', id)),
       situacao: () => IMP.situacaoCliente(id),
       concluir: () => { const p = S.obter('pendencias', id); p.status = 'concluida'; p.conclusao = U.iso(new Date()); S.gravar('pendencias', p); UI.toast('Pendência concluída.'); render(); },
-      enviado: () => { const x = S.obter('esocial', id); const rec = prompt('Nº do recibo do eSocial (opcional):', x.recibo || ''); if (rec === null) return; x.status = 'enviado'; x.recibo = rec; x.envio = U.iso(new Date()); S.gravar('esocial', x); render(); },
+      enviado: async () => { const x = S.obter('esocial', id); const rec = await UI.confirmar('Informe o nº do recibo do eSocial (opcional):', { titulo: 'Marcar como enviado', campo: 'Nº do recibo', valor: x.recibo || '', ok: 'Marcar enviado' }); if (rec === null) return; x.status = 'enviado'; x.recibo = rec; x.envio = U.iso(new Date()); S.gravar('esocial', x); render(); },
       psico: () => abrirPsico(id),
       cronograma: () => {
         const c = S.obter('cipa', id);
@@ -366,10 +387,18 @@
         U.baixar(`${b.dataset.mod}_${U.iso(new Date())}.csv`, U.csv([mod.colunas.map((c) => c.r), ...itens.map((x) => mod.colunas.map((c) => txt(String(c.v(x)))))]), 'text/csv;charset=utf-8');
       },
       csvagenda: () => U.baixar(`vencimentos_${U.iso(new Date())}.csv`, U.csv([['Data', 'Cliente', 'Tipo', 'Item', 'Situação'], ...R.vencimentos().map((x) => [U.br(x.venc), S.nomeCliente(x.clienteId), x.tipo, x.titulo, x.sit.txt])]), 'text/csv;charset=utf-8'),
-      backup: () => U.baixar(`ssma-gestao-backup_${U.iso(new Date())}.json`, S.exportar(), 'application/json'),
+      backup: () => {
+        const js = S.exportar(); const nome = `ssma-gestao-backup_${U.iso(new Date())}.json`;
+        UI.modal({ titulo: 'Backup dos dados', corpo: `<p class="mudo">Baixe o arquivo e guarde no Drive da SSMA. Se o download não começar (visualização incorporada), copie o texto abaixo e salve como <code>${nome}</code>.</p><textarea id="bkTxt" readonly style="min-height:220px;font-family:monospace;font-size:.75rem">${e(js)}</textarea>`,
+          rodape: `<button class="btn" id="bkCp">Copiar</button><button class="btn primario" id="bkDl">Baixar arquivo</button>`,
+          aoAbrir(m) { m.querySelector('#bkDl').onclick = () => U.baixar(nome, js, 'application/json'); m.querySelector('#bkCp').onclick = async () => { if (await U.copiar(js)) UI.toast('Copiado.'); else { const t = m.querySelector('#bkTxt'); t.focus(); t.select(); UI.toast('Use Ctrl+C para copiar.'); } }; } });
+      },
+      colarbackup: () => UI.modal({ titulo: 'Restaurar backup colado', corpo: '<p class="mudo">Cole aqui o conteúdo do arquivo de backup (.json).</p><textarea id="bkCola" style="min-height:220px;font-family:monospace;font-size:.75rem"></textarea>',
+        rodape: '<button class="btn primario" id="bkOk">Restaurar</button>', aoAbrir(m) { m.querySelector('#bkOk').onclick = () => restaurar(m.querySelector('#bkCola').value); } }),
+      remexemplo: async () => { if (!await UI.confirmar('Remover todos os dados de exemplo (fictícios)? Seus cadastros reais não são afetados.', { ok: 'Remover exemplos' })) return; S.removerExemplos(); UI.toast('Exemplos removidos.'); render(); },
       limparimg: () => { S.cfg[b.dataset.k] = null; S.salvar(); render(); },
-      exemplo: () => { if (S.lista('clientes').length && !confirm('Já existem dados. Adicionar os dados de exemplo mesmo assim?')) return; window.carregarExemplo(); UI.toast('Dados de exemplo carregados.'); location.hash = '#/painel'; render(); },
-      zerar: () => { if (prompt('Isto apaga TODOS os dados deste navegador. Digite APAGAR para confirmar.') === 'APAGAR') { S.zerar(); UI.toast('Dados apagados.'); render(); } }
+      exemplo: async () => { if (S.lista('clientes').length && !await UI.confirmar('Já existem dados. Adicionar os dados de exemplo mesmo assim?')) return; window.carregarExemplo(); UI.toast('Dados de exemplo carregados.'); location.hash = '#painel'; render(); },
+      zerar: async () => { const r = await UI.confirmar('Isto apaga TODOS os dados deste navegador. Digite APAGAR para confirmar.', { titulo: 'Apagar todos os dados', campo: 'APAGAR', ok: 'Apagar', perigo: true }); if (r === 'APAGAR') { S.zerar(); UI.toast('Dados apagados.'); render(); } }
     };
     acoes[a] && acoes[a]();
   });
@@ -383,10 +412,11 @@
     else render();
   });
 
-  window.addEventListener('hashchange', () => { if (!location.hash.startsWith('#/cliente/')) estado.abaCliente = 'resumo'; render(); });
+  window.addEventListener('hashchange', () => { if (!location.hash.startsWith('#cliente')) estado.abaCliente = 'resumo'; render(); });
   document.addEventListener('DOMContentLoaded', () => {
     $('#btnMenu').onclick = () => $('#sidebar').classList.toggle('aberta');
     $('#ano').textContent = new Date().getFullYear();
+    if (window.SSMA_DEMO_AUTO && !S.lista('clientes').length && !S.cfg._demoVisto) { window.carregarExemplo(); S.cfg._demoVisto = true; S.salvar(); }
     render();
   });
 })();

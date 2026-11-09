@@ -30,12 +30,23 @@
   `;
 
   function abrir(titulo, corpo, css, pagina) {
-    const w = window.open('', '_blank');
-    if (!w) { alert('Permita pop-ups para este site para gerar os documentos.'); return; }
-    w.document.write(`<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><title>${e(titulo)}</title>
+    const html = `<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><title>${e(titulo)}</title>
       <style>@page{size:${pagina || 'A4 portrait'};margin:0}${cssBase}${css || ''}</style></head>
-      <body><div class="barra-imp"><button onclick="print()">Imprimir / Salvar PDF</button></div>${corpo}</body></html>`);
-    w.document.close();
+      <body><div class="barra-imp"><button onclick="print()">Imprimir / Salvar PDF</button></div>${corpo}</body></html>`;
+    let w = null; try { w = window.open('', '_blank'); } catch (err) { w = null; }
+    if (w) { w.document.write(html); w.document.close(); return; }
+    // Sem pop-up (bloqueado ou visualização incorporada): mostra a prévia dentro da página
+    const paisagem = /landscape/.test(pagina || '');
+    UI.modal({
+      titulo: 'Prévia do documento', largo: true,
+      corpo: `<div class="aviso">Pop-ups bloqueados nesta visualização: veja a prévia abaixo. Para <b>imprimir ou salvar em PDF</b>, use o botão ao lado ou abra o sistema pelo link do GitHub / arquivo index.html e permita pop-ups.</div>
+        <div style="overflow:auto;background:#E3E5E3;padding:10px;border-radius:8px;max-height:70vh"><iframe id="prevDoc" title="Prévia" style="border:0;background:#fff;width:${paisagem ? '1123px' : '794px'};height:${paisagem ? '794px' : '1123px'};display:block;margin:0 auto"></iframe></div>`,
+      rodape: '<button class="btn primario" id="prevImp">Imprimir / Salvar PDF</button>',
+      aoAbrir(m) {
+        const fr = m.querySelector('#prevDoc'); fr.srcdoc = html;
+        m.querySelector('#prevImp').onclick = () => { try { fr.contentWindow.focus(); fr.contentWindow.print(); } catch (err) { UI.avisar('A impressão está bloqueada nesta visualização. Abra o sistema pelo GitHub ou pelo arquivo index.html.'); } };
+      }
+    });
   }
 
   function cabecalho() {

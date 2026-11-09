@@ -104,7 +104,7 @@
   }
   function salvar() {
     try { localStorage.setItem(CHAVE, JSON.stringify(DB)); DB.config._ultimoSalvo = new Date().toISOString(); }
-    catch (e) { alert('Não foi possível salvar: o armazenamento do navegador está cheio. Faça um backup e remova imagens grandes (logo/assinatura).'); }
+    catch (e) { (window.UI ? UI.avisar : alert)('Não foi possível salvar: o armazenamento do navegador está cheio ou bloqueado. Faça um backup e remova imagens grandes (logo/assinatura).'); }
   }
 
   const S = {
@@ -132,7 +132,12 @@
       if (!o || typeof o !== 'object' || !Array.isArray(o.clientes)) throw new Error('Arquivo não parece um backup do SSMA Gestão.');
       localStorage.setItem(CHAVE, JSON.stringify(o)); carregar(); salvar();
     },
-    zerar() { DB = vazio(); salvar(); }
+    zerar() { DB = vazio(); salvar(); },
+    removerExemplos() {
+      const ids = new Set(DB.clientes.filter((c) => c.exemplo).map((c) => c.id));
+      COLECOES.forEach((c) => { DB[c] = DB[c].filter((x) => !x.exemplo && !(c === 'clientes' ? ids.has(x.id) : ids.has(x.clienteId))); });
+      salvar();
+    }
   };
 
   // ---------- Regras derivadas ----------

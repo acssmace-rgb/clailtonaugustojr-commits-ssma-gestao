@@ -3,7 +3,7 @@ window.carregarExemplo = function () {
   const hoje = U.iso(new Date());
   const d = (n) => U.somaDias(hoje, n);
   const m = (n) => U.somaMeses(hoje, n);
-  const add = (c, o) => S.gravar(c, o);
+  const add = (c, o) => S.gravar(c, Object.assign(o, { exemplo: true }));
 
   const c1 = add('clientes', { razaoSocial: 'VIDRAÇARIA EXEMPLO LTDA', fantasia: 'Vidraçaria Exemplo', cnpj: '11.222.333/0001-81', cnae: '23.11-7-00', grauRisco: '3', empregados: '48', unidade: 'Matriz – Maracanaú', endereco: 'Rua Fictícia, 100 – Maracanaú/CE', contatoNome: 'Ana (RH)', contatoEmail: 'rh@exemplo.com.br', contatoFone: '(85) 90000-0001', servicos: ['PGR', 'PCMSO', 'LTCAT', 'Treinamentos', 'eSocial', 'Psicossocial NR-01'], ativo: true, repositorio: 'cliente-vidracaria-exemplo' });
   const c2 = add('clientes', { razaoSocial: 'MÓVEIS DEMONSTRAÇÃO INDÚSTRIA LTDA', fantasia: 'Móveis Demo', cnpj: '22.333.444/0001-81', cnae: '31.01-2-00', grauRisco: '3', empregados: '120', unidade: 'Fábrica – Fortaleza', contatoNome: 'Carlos (DP)', contatoEmail: 'dp@demo.com.br', contatoFone: '(85) 90000-0002', servicos: ['PGR', 'PCMSO', 'CIPA', 'Brigada/PAE', 'ABVTEX', 'Visitas mensais'], ativo: true, repositorio: 'cliente-moveis-demo' });
